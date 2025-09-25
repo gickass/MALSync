@@ -1,0 +1,61 @@
+{
+    "title": "Webtoon",
+    "url": "https://webtoons.com",
+    "testCases": [
+      {
+        "url": "https://www.webtoons.com/en/fantasy/the-greatest-estate-developer/episode-182-season-2-finale/viewer?title_no=3596&episode_no=184",
+        "expected": {
+          "sync": true,
+          "title": "",
+          "identifier": "",
+          "image": "",
+          "overviewUrl": "",
+          "episode": ,
+          "nextEpUrl": "",
+          "uiSelector": false
+        }
+      },
+      {
+        "url": "https://www.webtoons.com/en/thriller/hand-jumper/ep-46-chance-encounter/viewer?title_no=2702&episode_no=47",
+        "expected": {
+          "sync": true,
+          "title": "",
+          "identifier": "",
+          "image": "",
+          "overviewUrl": "",
+          "episode": ,
+          "nextEpUrl": "",
+          "uiSelector": false
+        }
+      },
+      {
+        "url": "https://www.webtoons.com/en/canvas/mirai/chapter-3-eyes-everywhere/viewer?title_no=1056929&episode_no=4",
+        "expected": {
+          "sync": true,
+          "title": "",
+          "identifier": "",
+          "image": "",
+          "overviewUrl": "",
+          "episode": ,
+          "nextEpUrl": "",
+          "uiSelector": false
+        }
+      },
+      {
+        "url": "",
+        "expected": {
+          "sync": false,
+          "title": "",
+          "identifier": "",
+          "image": "",
+          "uiSelector": true,
+          "epList": {
+            "1": "",
+            "5": "",
+            "60": "",
+            "145": ""
+          }
+        }
+      }
+    ]
+  }
