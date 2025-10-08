@@ -19,7 +19,7 @@ export const Thunderscans: PageInterface = {
       return $c.querySelector('.r-1h0z5md .r-19bl0xb').text().trim().run();
     },
     getIdentifier($c) {
-      return $c.url().this('sync.getOverviewUrl').this('overview.getIdentifier').run();
+      return $c.url().this('sync.getTitle').trim().toLowerCase().replaceAll(' ', '-').run();
     },
     getOverviewUrl($c) {
       return $c.querySelector('.allc a').getAttribute('href').ifNotReturn().urlAbsolute().run();
@@ -77,17 +77,10 @@ export const Thunderscans: PageInterface = {
         .run();
     },
     getTitle($c) {
-      return $c
-        .querySelector('h1')
-        .text()
-        .trim()
-        .replaceAll('\n', ' ')
-        .replaceRegex('\\s+', ' ')
-        .trim()
-        .run();
+      return $c.title().split('- Official').at(0).run();
     },
     getIdentifier($c) {
-      return $c.url().urlPart(4).trim().run();
+      return $c.url().urlPart(5).trim().run();
     },
     getImage($c) {
       return $c.querySelector('.thumb > img').getAttribute('src').log().ifNotReturn().run();
