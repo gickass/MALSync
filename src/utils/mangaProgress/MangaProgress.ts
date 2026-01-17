@@ -34,6 +34,10 @@ export class MangaProgress {
 
   protected page: string;
 
+  protected identifier?: string;
+
+  protected chapter?: number;
+
   protected result: mangaProgress | null = null;
 
   protected interval;
@@ -42,9 +46,11 @@ export class MangaProgress {
     // do nothing
   };
 
-  constructor(configs: mangaProgressConfig[], page: string) {
+  constructor(configs: mangaProgressConfig[], page: string, identifier?: string, chapter?: number) {
     this.configs = [...alternativeReader, ...configs];
     this.page = page;
+    this.identifier = identifier;
+    this.chapter = chapter;
     logger.log('config', this.configs);
   }
 
@@ -141,10 +147,103 @@ export class MangaProgress {
   setProgress() {
     j.$('.ms-progress').css('width', `${this.progressPercentage()! * 100}%`);
     j.$('#malSyncProgress').removeClass('ms-loading').removeClass('ms-done');
+
+    this.saveMangaPage();
+
     if (this.finished() && j.$('#malSyncProgress').length) {
       j.$('#malSyncProgress').addClass('ms-done');
       j.$('.flash.type-update .sync').trigger('click');
       clearInterval(this.interval);
     }
+  }
+
+  setIdentifier(identifier: string) {
+    if (!this.identifier && identifier) {
+      this.identifier = identifier;
+    }
+  }
+
+  setChapter(chapter: number) {
+    if (this.chapter !== null) {
+      this.chapter = chapter;
+    }
+  }
+
+  public getConfigs() {
+    return this.configs;
+  }
+
+  saveMangaPage() {
+    if (!this.result) return;
+
+    const data = {
+      current: this.result.current,
+      total: this.result.total,
+    };
+
+    localStorage.setItem(
+      `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
+      JSON.stringify(data),
+    );
+
+    logger.log(`Saved manga progress at ${this.page}-${this.identifier}-${this.chapter}`, data);
+  }
+
+  loadMangaPage() {
+    const saved = localStorage.getItem(
+      `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
+    );
+    if (!saved) return null;
+
+    try {
+      const data = JSON.parse(saved);
+
+      // Do NOT scroll here; scroll will happen when user clicks button
+      return data;
+    } catch (e) {
+      console.warn('Failed to load manga progress', e);
+      return null;
+    }
+  }
+
+  resume(savedIndex: number) {
+    const scrollEl = this.getScrollableElement();
+    logger.log('manga scroll element', scrollEl);
+    if (!scrollEl) return;
+
+    const scrollLoop = () => {
+      const current = this.getProgress()?.current ?? 0;
+
+      // Stop when we reach saved progress
+      if (current >= savedIndex) {
+        logger.log('Reached saved progress', current);
+        return;
+      }
+
+      // Scroll continuously by a chunk
+      scrollEl.scrollBy({ top: 40, behavior: 'instant' });
+
+      // Keep looping every frame
+      requestAnimationFrame(scrollLoop);
+    };
+
+    scrollLoop();
+  }
+
+  private getScrollableElement(): HTMLElement {
+    const all = Array.from(document.body.querySelectorAll('*')) as HTMLElement[];
+
+    const container = all.find(el => {
+      const style = getComputedStyle(el);
+      return (
+        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+        el.scrollHeight > el.clientHeight
+      );
+    });
+
+    return (container ||
+      document.scrollingElement ||
+      document.documentElement ||
+      document.body) as HTMLElement;
   }
 }
