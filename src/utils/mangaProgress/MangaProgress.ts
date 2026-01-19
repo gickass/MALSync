@@ -148,7 +148,7 @@ export class MangaProgress {
     j.$('.ms-progress').css('width', `${this.progressPercentage()! * 100}%`);
     j.$('#malSyncProgress').removeClass('ms-loading').removeClass('ms-done');
 
-    this.saveMangaPage();
+    if (this.page && this.identifier && this.chapter) this.saveMangaPage();
 
     if (this.finished() && j.$('#malSyncProgress').length) {
       j.$('#malSyncProgress').addClass('ms-done');
@@ -158,38 +158,110 @@ export class MangaProgress {
   }
 
   setIdentifier(identifier: string) {
-    if (!this.identifier && identifier) {
+    if (this.identifier !== identifier) {
       this.identifier = identifier;
     }
   }
 
   setChapter(chapter: number) {
-    if (this.chapter !== null) {
+    if (this.chapter !== chapter) {
       this.chapter = chapter;
     }
   }
 
-  public getConfigs() {
-    return this.configs;
+  // Page saving/loading logic
+
+  private isLongStrip(): boolean {
+    const threshold = window.innerHeight * 2;
+
+    const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    if (docHeight > threshold) return true;
+
+    const containers = Array.from(document.querySelectorAll('div, section, article'));
+    const hasBigContainer = containers.some(el => el.scrollHeight > threshold);
+
+    return hasBigContainer;
   }
 
   saveMangaPage() {
-    if (!this.result) return;
+    if (!this.isLongStrip()) return;
+
+    const elements = Array.from(document.body.querySelectorAll<HTMLElement>('*'));
+    const viewportCenter = window.innerHeight / 2;
+
+    const result = elements.reduce(
+      (closest, el) => {
+        const style = getComputedStyle(el);
+
+        // Skip invisible elements
+        if (style.display === 'none' || style.opacity === '0') return closest;
+
+        // Filter for <img> OR divs with background images
+        const hasImage =
+          el.tagName.toLowerCase() === 'img' ||
+          (style.backgroundImage && style.backgroundImage !== 'none');
+
+        if (!hasImage) return closest;
+
+        const rect = el.getBoundingClientRect();
+
+        // Filters (Off-screen or too small elements)
+        if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
+        if (rect.height < 100) return closest;
+
+        const elementCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(elementCenter - viewportCenter);
+
+        // comparison If we have no 'closest' yet, or the current 'distance' is smaller than the filtered distance
+        if (!closest || distance < closest.distance) {
+          return { el, distance };
+        }
+
+        return closest;
+      },
+      null as { el: HTMLElement; distance: number } | null,
+    );
+
+    let relativeOffset = 0.5;
+    const nearestElement = result?.el;
+    if (nearestElement) {
+      const pixelPos = nearestElement.getBoundingClientRect();
+      if (pixelPos.height > 0) {
+        relativeOffset = (viewportCenter - pixelPos.top) / pixelPos.height;
+      }
+    }
+
+    function getElementSelector(el: HTMLElement): number[] {
+      const path: number[] = [];
+      let current: HTMLElement | null = el;
+
+      while (current && current !== document.body) {
+        const parent = current.parentElement;
+        if (!parent) break;
+
+        const index = Array.from(parent.children).indexOf(current);
+        path.unshift(index);
+        current = parent;
+      }
+      return path;
+    }
 
     const data = {
-      current: this.result.current,
-      total: this.result.total,
+      current: this.result?.current,
+      total: this.result?.total,
+      nearestElementPath: nearestElement ? getElementSelector(nearestElement) : null,
+      pixelOffsets: relativeOffset,
     };
 
     localStorage.setItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
       JSON.stringify(data),
     );
-
     logger.log(`Saved manga progress at ${this.page}-${this.identifier}-${this.chapter}`, data);
   }
 
   loadMangaPage() {
+    if (!this.isLongStrip()) return null;
     const saved = localStorage.getItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
     );
@@ -198,52 +270,85 @@ export class MangaProgress {
     try {
       const data = JSON.parse(saved);
 
-      // Do NOT scroll here; scroll will happen when user clicks button
       return data;
     } catch (e) {
-      console.warn('Failed to load manga progress', e);
+      logger.warn('Failed to load manga progress', e);
       return null;
     }
   }
 
-  resume(savedIndex: number) {
-    const scrollEl = this.getScrollableElement();
-    logger.log('manga scroll element', scrollEl);
-    if (!scrollEl) return;
+  resume(saved) {
+    if (!saved) return;
 
-    const scrollLoop = () => {
-      const current = this.getProgress()?.current ?? 0;
+    function getElementFromPath(path: number[]): HTMLElement | null {
+      return path.reduce<HTMLElement | null>((current, index) => {
+        if (!current) return null;
+        const nextChild = current.children[index] as HTMLElement;
+        return nextChild || current;
+      }, document.body);
+    }
 
-      // Stop when we reach saved progress
-      if (current >= savedIndex) {
-        logger.log('Reached saved progress', current);
-        return;
+    const el = getElementFromPath(saved.nearestElementPath);
+    if (!el) return;
+
+    function getScrollElement(el) {
+      let current = el.parentElement;
+
+      while (current && current !== document.body) {
+        const style = window.getComputedStyle(current);
+        const hasScrollbar = current.scrollHeight > current.clientHeight;
+        const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
+
+        if (hasScrollbar && isScrollable) {
+          return current;
+        }
+        current = current.parentElement;
       }
+      return document.documentElement;
+    }
 
-      // Scroll continuously by a chunk
-      scrollEl.scrollBy({ top: 40, behavior: 'instant' });
+    const performPrecisionScroll = () => {
+      const container = getScrollElement(el);
+      const rect = el.getBoundingClientRect();
 
-      // Keep looping every frame
-      requestAnimationFrame(scrollLoop);
+      const isMainOrDiv = container === document.documentElement || container === document.body;
+
+      const currentScroll = isMainOrDiv
+        ? window.pageYOffset || document.documentElement.scrollTop
+        : container.scrollTop;
+
+      // If div, find container's offset from the top of the screen
+      const containerTop = isMainOrDiv ? 0 : container.getBoundingClientRect().top;
+      const elementTopInContainer = currentScroll + (rect.top - containerTop);
+      const absoluteTargetPoint = elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
+      const finalTarget = absoluteTargetPoint - window.innerHeight / 2;
+
+      container.scrollTo({
+        top: finalTarget,
+        behavior: 'smooth',
+      });
     };
 
-    scrollLoop();
-  }
+    performPrecisionScroll();
+    let checks = 0;
+    const scrollInterval = setInterval(() => {
+      performPrecisionScroll();
+      checks++;
 
-  private getScrollableElement(): HTMLElement {
-    const all = Array.from(document.body.querySelectorAll('*')) as HTMLElement[];
+      // Stop after few second or if the user starts scrolling manually
+      if (checks > 6) {
+        clearInterval(scrollInterval);
+      }
+    }, 500);
 
-    const container = all.find(el => {
-      const style = getComputedStyle(el);
-      return (
-        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-        el.scrollHeight > el.clientHeight
-      );
-    });
-
-    return (container ||
-      document.scrollingElement ||
-      document.documentElement ||
-      document.body) as HTMLElement;
+    // Stop the scroll if the user scrolls manually
+    const stopOnUserScroll = () => {
+      clearInterval(scrollInterval);
+      window.removeEventListener('wheel', stopOnUserScroll);
+      window.removeEventListener('touchmove', stopOnUserScroll);
+    };
+    window.addEventListener('wheel', stopOnUserScroll);
+    window.addEventListener('touchmove', stopOnUserScroll);
+    logger.log('Resumed manga progress', saved);
   }
 }

@@ -243,6 +243,46 @@ export class SyncPage {
     }
   }
 
+  private handleMangaResume() {
+    if (
+      !this.page.sync.readerConfig ||
+      this.curState === 'undefined' ||
+      this.curState.identifier === 'undefined' ||
+      this.curState.episode === 'undefined'
+    )
+      return;
+    this.mangaProgress?.setChapter(this.page.sync.getEpisode(this.url));
+    this.mangaProgress?.setIdentifier(this.page.sync.getIdentifier(this.url));
+    const savedProgress = this.mangaProgress?.loadMangaPage();
+
+    if (savedProgress) {
+      logger.log('Manga Progress Found', this.mangaProgress);
+      const resumeMsg = utils.flashm(
+        `<button id="MALSyncResume" class="sync" style="margin-bottom: 2px; background-color: transparent; border: none; color: rgb(255,64,129); cursor: pointer;">
+         Return to last page? (${savedProgress.current} of ${savedProgress.total})
+       </button>
+       <br>
+       <button class="resumeClose" style="background-color: transparent; border: none; color: white; margin-top: 10px; cursor: pointer;">Close</button>`,
+        {
+          permanent: true,
+          error: false,
+          type: 'resume',
+          minimized: false,
+          position: 'bottom',
+        },
+      );
+
+      resumeMsg.find('.sync').on('click', () => {
+        this.mangaProgress?.resume(savedProgress);
+        j.$(resumeMsg).remove();
+      });
+
+      resumeMsg.find('.resumeClose').on('click', () => {
+        j.$(resumeMsg).remove();
+      });
+    }
+  }
+
   curState: any = undefined;
 
   tempPlayer: any = undefined;
@@ -337,58 +377,8 @@ export class SyncPage {
           });
         });
       }
-      if (this.page.type === 'manga' && this.page.sync.readerConfig) {
-        // Update MangaProgress to use construct identifer and chapter
-        const waitForChapIden = setInterval(() => {
-          const identifier = this.page.sync.getIdentifier(this.url);
-          const chapter = this.page.sync.getEpisode(this.url);
-
-          if (!identifier || chapter === null) return;
-
-          this.mangaProgress?.setIdentifier(identifier);
-          this.mangaProgress?.setChapter(chapter);
-          const savedProgress = this.mangaProgress?.loadMangaPage();
-          logger.log('Send Progress', savedProgress);
-
-          clearInterval(waitForChapIden);
-        }, 300);
-
-        const mangaPage = new MangaProgress(
-          this.page.sync.readerConfig || [],
-          this.page.name,
-          this.curState.identifier,
-          this.curState.episode,
-        );
-
-        const savedProgress = mangaPage?.loadMangaPage();
-        logger.log('Load Progress', savedProgress);
-        if (!savedProgress) return;
-
-        if (savedProgress) {
-          const resumeMsg = utils.flashm(
-            `<button id="MALSyncResume" class="sync" style="margin-bottom: 2px; background-color: transparent; border: none; color: rgb(255,64,129); cursor: pointer;">
-         Return to last page? (${savedProgress.current} of ${savedProgress.total})
-       </button>
-       <br>
-       <button class="resumeClose" style="background-color: transparent; border: none; color: white; margin-top: 10px; cursor: pointer;">Close</button>`,
-            {
-              permanent: true,
-              error: false,
-              type: 'resume',
-              minimized: false,
-              position: 'bottom',
-            },
-          );
-
-          resumeMsg.find('.sync').on('click', () => {
-            this.mangaProgress?.resume(savedProgress.current);
-            j.$(resumeMsg).remove();
-          });
-
-          resumeMsg.find('.resumeClose').on('click', () => {
-            j.$(resumeMsg).remove();
-          });
-        }
+      if (this.page.type === 'manga') {
+        this.handleMangaResume();
       }
       logger.m('Sync', 'green').log(state);
     } else {
