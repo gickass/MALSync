@@ -380,17 +380,23 @@ export class SyncPage {
           return (current.children[index] as HTMLElement) || current;
         }, document.body);
 
-      const result = runPath(path);
-      // sometime site lands on a SCRIPT/META/LINK/STYLE tag like in comix probably due to structure change
-      const isInvalid = (el: HTMLElement) =>
-        ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(el.tagName);
-      if (isInvalid(result)) {
-        const alternateStart = path[0] === 15 ? 5 : 15;
-        const fallbackPath = [alternateStart, ...path.slice(1)];
-        const fallbackResult = runPath(fallbackPath);
+      const isInvalid = (el: HTMLElement) => {
+        const isJunkTag = ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(el.tagName);
+        const hasHiddenAttr = el.hasAttribute('hidden');
+        const style = window.getComputedStyle(el);
+        const isCSSHidden = style.display === 'none' || style.visibility === 'hidden';
+        return isJunkTag || hasHiddenAttr || isCSSHidden;
+      };
 
-        if (!isInvalid(fallbackResult)) {
-          return fallbackResult;
+      const result = runPath(path);
+      if (isInvalid(result)) {
+        if (path[0] !== 5) {
+          const fallbackPath = [5, ...path.slice(1)];
+          const fallbackResult = runPath(fallbackPath);
+          logger.log('Invalid element path, trying fallback', fallbackPath, fallbackResult);
+          if (!isInvalid(fallbackResult)) {
+            return fallbackResult;
+          }
         }
       }
       return result;
