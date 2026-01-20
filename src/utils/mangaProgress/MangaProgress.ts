@@ -215,27 +215,26 @@ export class MangaProgress {
         const style = getComputedStyle(el);
         if (style.display === 'none' || style.opacity === '0') return closest;
 
-        // Filter for <img> OR divs with background images
-        const hasImage =
-          el.tagName.toLowerCase() === 'img' ||
-          (style.backgroundImage && style.backgroundImage !== 'none');
+        const className = el.getAttribute('class');
+        if (!className) return closest;
+        const firstClass = className.split(/\s+/)[0];
+        if (!firstClass) return closest;
 
-        if (!hasImage) return closest;
+        const globalClassCount = document.getElementsByClassName(firstClass).length;
+
+        if (globalClassCount < 2) return closest;
 
         const rect = el.getBoundingClientRect();
-
-        // Filters (Off-screen or too small elements)
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
         if (rect.height < 100 || rect.width < 200) return closest;
 
-        const siblingImages = el.parentElement?.querySelectorAll('img').length || 0;
-        const cousinImages = el.parentElement?.parentElement?.querySelectorAll('img').length || 0;
-        if (!(siblingImages > 2 || cousinImages > 5)) return closest;
+        const isImage = el.tagName === 'IMG';
+        const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
+        if (!isImage && !hasBg) return closest;
 
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
 
-        // comparison If we have no 'closest' yet, or the current 'distance' is smaller than the filtered distance
         if (!closest || distance < closest.distance) {
           return { el, distance };
         }
@@ -246,6 +245,7 @@ export class MangaProgress {
     );
 
     let relativeOffset = 0.5;
+
     const nearestElement = result?.el;
     if (nearestElement) {
       const pixelPos = nearestElement.getBoundingClientRect();
@@ -260,7 +260,6 @@ export class MangaProgress {
       nearestElementPath: nearestElement ? getElementSelector(nearestElement) : null,
       pixelOffsets: relativeOffset,
     };
-
     localStorage.setItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
       JSON.stringify(data),
