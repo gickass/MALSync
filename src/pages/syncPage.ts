@@ -258,7 +258,12 @@ export class SyncPage {
     if (savedProgress) {
       logger.log('Manga Progress Found', this.mangaProgress);
 
-      const autoCloseUI = getElementFromPath(savedProgress.nearestElementPath);
+      const targetElement = getElementFromPath(savedProgress.nearestElementPath);
+      const AutoCloseUI = getScrollElement(targetElement);
+      const eventClose =
+        AutoCloseUI === document.documentElement || AutoCloseUI === document.body
+          ? window
+          : AutoCloseUI;
 
       const resumeMsg = utils.flashm(
         `<button id="MALSyncResume" class="sync" style="margin-bottom: 2px; background-color: transparent; border: none; color: rgb(255,64,129); cursor: pointer;">
@@ -275,28 +280,28 @@ export class SyncPage {
         },
       );
 
+      const removeUIOnScroll = () => {
+        if (!targetElement || !resumeMsg) return;
+
+        const rect = targetElement.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.25) {
+          j.$(resumeMsg).remove();
+          eventClose.removeEventListener('scroll', removeUIOnScroll);
+        }
+      };
+
       resumeMsg.find('.sync').on('click', () => {
-        window.removeEventListener('scroll', removeUIOnScroll);
+        eventClose.removeEventListener('scroll', removeUIOnScroll);
         resume(savedProgress);
         j.$(resumeMsg).remove();
       });
 
       resumeMsg.find('.resumeClose').on('click', () => {
-        window.removeEventListener('scroll', removeUIOnScroll);
+        eventClose.removeEventListener('scroll', removeUIOnScroll);
         j.$(resumeMsg).remove();
       });
 
-      const removeUIOnScroll = () => {
-        if (!autoCloseUI) return;
-
-        const rect = autoCloseUI.getBoundingClientRect();
-        if (rect.top < window.innerHeight * 0.25) {
-          j.$(resumeMsg).remove();
-          window.removeEventListener('scroll', removeUIOnScroll);
-        }
-      };
-
-      window.addEventListener('scroll', removeUIOnScroll, { passive: true });
+      eventClose.addEventListener('scroll', removeUIOnScroll, { passive: true });
     }
 
     // resume button handling
@@ -304,6 +309,7 @@ export class SyncPage {
       if (!saved) return;
 
       const el = getElementFromPath(saved.nearestElementPath);
+      logger.log('element check', el, saved.nearestElementPath);
       if (!el) return;
 
       const container = getScrollElement(el);
@@ -374,15 +380,19 @@ export class SyncPage {
           return (current.children[index] as HTMLElement) || current;
         }, document.body);
 
-      let result = runPath(path);
+      const result = runPath(path);
       // sometime site lands on a SCRIPT/META/LINK/STYLE tag like in comix probably due to structure change
-      const isInvalidTag = ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(result.tagName);
+      const isInvalid = (el: HTMLElement) =>
+        ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(el.tagName);
+      if (isInvalid(result)) {
+        const alternateStart = path[0] === 15 ? 5 : 15;
+        const fallbackPath = [alternateStart, ...path.slice(1)];
+        const fallbackResult = runPath(fallbackPath);
 
-      if (isInvalidTag && path[0] === 15) {
-        const fallbackPath = [5, ...path.slice(1)];
-        result = runPath(fallbackPath);
+        if (!isInvalid(fallbackResult)) {
+          return fallbackResult;
+        }
       }
-
       return result;
     }
   }
