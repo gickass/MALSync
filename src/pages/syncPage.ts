@@ -257,6 +257,9 @@ export class SyncPage {
 
     if (savedProgress) {
       logger.log('Manga Progress Found', this.mangaProgress);
+
+      const autoCloseUI = getElementFromPath(savedProgress.nearestElementPath);
+
       const resumeMsg = utils.flashm(
         `<button id="MALSyncResume" class="sync" style="margin-bottom: 2px; background-color: transparent; border: none; color: rgb(255,64,129); cursor: pointer;">
          Return to last page? (${savedProgress.current} of ${savedProgress.total})
@@ -273,13 +276,27 @@ export class SyncPage {
       );
 
       resumeMsg.find('.sync').on('click', () => {
+        window.removeEventListener('scroll', removeUIOnScroll);
         resume(savedProgress);
         j.$(resumeMsg).remove();
       });
 
       resumeMsg.find('.resumeClose').on('click', () => {
+        window.removeEventListener('scroll', removeUIOnScroll);
         j.$(resumeMsg).remove();
       });
+
+      const removeUIOnScroll = () => {
+        if (!autoCloseUI) return;
+
+        const rect = autoCloseUI.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.25) {
+          j.$(resumeMsg).remove();
+          window.removeEventListener('scroll', removeUIOnScroll);
+        }
+      };
+
+      window.addEventListener('scroll', removeUIOnScroll, { passive: true });
     }
 
     // resume button handling
@@ -289,12 +306,12 @@ export class SyncPage {
       const el = getElementFromPath(saved.nearestElementPath);
       if (!el) return;
 
-      const performPrecisionScroll = () => {
-        const container = getScrollElement(el);
-        logger.debug('Using scroll container', container);
-        const rect = el.getBoundingClientRect();
+      const container = getScrollElement(el);
+      const isMainOrDiv = container === document.documentElement || container === document.body;
+      let finalTarget = 0;
 
-        const isMainOrDiv = container === document.documentElement || container === document.body;
+      const performPrecisionScroll = () => {
+        const rect = el.getBoundingClientRect();
 
         const currentScroll = isMainOrDiv
           ? window.pageYOffset || document.documentElement.scrollTop
@@ -305,7 +322,7 @@ export class SyncPage {
         const elementTopInContainer = currentScroll + (rect.top - containerTop);
         const absoluteTargetPoint =
           elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
-        const finalTarget = absoluteTargetPoint - window.innerHeight / 2;
+        finalTarget = absoluteTargetPoint - window.innerHeight / 2;
 
         container.scrollTo({
           top: finalTarget,
@@ -314,6 +331,7 @@ export class SyncPage {
       };
 
       performPrecisionScroll();
+
       let checks = 0;
       const scrollInterval = setInterval(() => {
         performPrecisionScroll();
@@ -333,30 +351,39 @@ export class SyncPage {
       window.addEventListener('wheel', stopOnUserScroll);
       window.addEventListener('touchmove', stopOnUserScroll);
       logger.log('Resumed manga progress', saved);
+    }
 
-      // Function handling
-      function getElementFromPath(path: number[]): HTMLElement | null {
-        return path.reduce<HTMLElement | null>((current, index) => {
-          if (!current) return null;
-          const nextChild = current.children[index] as HTMLElement;
-          return nextChild || current;
-        }, document.body);
-      }
+    function getScrollElement(el: HTMLElement) {
+      let current = el.parentElement;
 
-      function getScrollElement(el: HTMLElement) {
-        let current = el.parentElement;
-
-        while (current && current !== document.body) {
-          const style = window.getComputedStyle(current);
-          const hasScrollbar = current.scrollHeight > current.clientHeight;
-          const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
-          if (hasScrollbar && isScrollable) {
-            return current;
-          }
-          current = current.parentElement;
+      while (current && current !== document.body) {
+        const style = window.getComputedStyle(current);
+        const hasScrollbar = current.scrollHeight > current.clientHeight;
+        const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
+        if (hasScrollbar && isScrollable) {
+          return current;
         }
-        return document.documentElement;
+        current = current.parentElement;
       }
+      return document.documentElement;
+    }
+
+    function getElementFromPath(path: number[]): HTMLElement {
+      const runPath = (p: number[]) =>
+        p.reduce((current, index) => {
+          return (current.children[index] as HTMLElement) || current;
+        }, document.body);
+
+      let result = runPath(path);
+      // sometime site lands on a SCRIPT/META/LINK/STYLE tag like in comix probably due to structure change
+      const isInvalidTag = ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(result.tagName);
+
+      if (isInvalidTag && path[0] === 15) {
+        const fallbackPath = [5, ...path.slice(1)];
+        result = runPath(fallbackPath);
+      }
+
+      return result;
     }
   }
 

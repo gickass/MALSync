@@ -295,6 +295,7 @@ export class MangaProgress {
 
     try {
       const data = JSON.parse(saved);
+      if (data.current === data.total) return null;
 
       return data;
     } catch (e) {
