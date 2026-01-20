@@ -148,7 +148,8 @@ export class MangaProgress {
     j.$('.ms-progress').css('width', `${this.progressPercentage()! * 100}%`);
     j.$('#malSyncProgress').removeClass('ms-loading').removeClass('ms-done');
 
-    if (this.page && this.identifier && this.chapter) this.saveMangaPage();
+    if (this.page && this.identifier && this.chapter && (this.result?.current || 0) > 1)
+      this.saveMangaPage();
 
     if (this.finished() && j.$('#malSyncProgress').length) {
       j.$('#malSyncProgress').addClass('ms-done');
@@ -172,28 +173,46 @@ export class MangaProgress {
   // Page saving/loading logic
 
   private isLongStrip(): boolean {
-    const threshold = window.innerHeight * 2;
-
     const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    const threshold = window.innerHeight * 3;
+    // Return true if page already has long base scroll
     if (docHeight > threshold) return true;
 
-    const containers = Array.from(document.querySelectorAll('div, section, article'));
-    const hasBigContainer = containers.some(el => el.scrollHeight > threshold);
-
-    return hasBigContainer;
+    return Array.from(document.querySelectorAll('div, section, main, article')).some(el => {
+      const htmlEl = el as HTMLElement;
+      const style = window.getComputedStyle(htmlEl);
+      const isScrollableCSS = /(auto|scroll|overlay)/.test(style.overflowY + style.overflow);
+      if (isScrollableCSS) {
+        return htmlEl.scrollHeight > threshold;
+      }
+      return false;
+    });
   }
 
   saveMangaPage() {
     if (!this.isLongStrip()) return;
 
-    const elements = Array.from(document.body.querySelectorAll<HTMLElement>('*'));
+    function getElementSelector(el: HTMLElement): number[] {
+      const path: number[] = [];
+      let current: HTMLElement | null = el;
+
+      while (current && current !== document.body) {
+        const parent = current.parentElement;
+        if (!parent) break;
+
+        const index = Array.from(parent.children).indexOf(current);
+        path.unshift(index);
+        current = parent;
+      }
+      return path;
+    }
+
     const viewportCenter = window.innerHeight / 2;
+    const elements = Array.from(document.body.querySelectorAll<HTMLElement>('*'));
 
     const result = elements.reduce(
       (closest, el) => {
         const style = getComputedStyle(el);
-
-        // Skip invisible elements
         if (style.display === 'none' || style.opacity === '0') return closest;
 
         // Filter for <img> OR divs with background images
@@ -207,7 +226,11 @@ export class MangaProgress {
 
         // Filters (Off-screen or too small elements)
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
-        if (rect.height < 100) return closest;
+        if (rect.height < 100 || rect.width < 200) return closest;
+
+        const siblingImages = el.parentElement?.querySelectorAll('img').length || 0;
+        const cousinImages = el.parentElement?.parentElement?.querySelectorAll('img').length || 0;
+        if (!(siblingImages > 2 || cousinImages > 5)) return closest;
 
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
@@ -231,21 +254,6 @@ export class MangaProgress {
       }
     }
 
-    function getElementSelector(el: HTMLElement): number[] {
-      const path: number[] = [];
-      let current: HTMLElement | null = el;
-
-      while (current && current !== document.body) {
-        const parent = current.parentElement;
-        if (!parent) break;
-
-        const index = Array.from(parent.children).indexOf(current);
-        path.unshift(index);
-        current = parent;
-      }
-      return path;
-    }
-
     const data = {
       current: this.result?.current,
       total: this.result?.total,
@@ -260,8 +268,26 @@ export class MangaProgress {
     logger.log(`Saved manga progress at ${this.page}-${this.identifier}-${this.chapter}`, data);
   }
 
-  loadMangaPage() {
-    if (!this.isLongStrip()) return null;
+  async loadMangaPage() {
+    const isReady = await new Promise(resolve => {
+      let attempts = 0;
+      const interval = setInterval(() => {
+        if (this.isLongStrip()) {
+          clearInterval(interval);
+          resolve(true);
+        }
+        if (++attempts > 10) {
+          // Check only for 5 seconds after page load
+          clearInterval(interval);
+          resolve(false);
+        }
+      }, 500);
+    });
+    if (!isReady) {
+      logger.log('Page save only support for long strip as of now');
+      return null;
+    }
+
     const saved = localStorage.getItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
     );
@@ -275,80 +301,5 @@ export class MangaProgress {
       logger.warn('Failed to load manga progress', e);
       return null;
     }
-  }
-
-  resume(saved) {
-    if (!saved) return;
-
-    function getElementFromPath(path: number[]): HTMLElement | null {
-      return path.reduce<HTMLElement | null>((current, index) => {
-        if (!current) return null;
-        const nextChild = current.children[index] as HTMLElement;
-        return nextChild || current;
-      }, document.body);
-    }
-
-    const el = getElementFromPath(saved.nearestElementPath);
-    if (!el) return;
-
-    function getScrollElement(el) {
-      let current = el.parentElement;
-
-      while (current && current !== document.body) {
-        const style = window.getComputedStyle(current);
-        const hasScrollbar = current.scrollHeight > current.clientHeight;
-        const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
-
-        if (hasScrollbar && isScrollable) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-      return document.documentElement;
-    }
-
-    const performPrecisionScroll = () => {
-      const container = getScrollElement(el);
-      const rect = el.getBoundingClientRect();
-
-      const isMainOrDiv = container === document.documentElement || container === document.body;
-
-      const currentScroll = isMainOrDiv
-        ? window.pageYOffset || document.documentElement.scrollTop
-        : container.scrollTop;
-
-      // If div, find container's offset from the top of the screen
-      const containerTop = isMainOrDiv ? 0 : container.getBoundingClientRect().top;
-      const elementTopInContainer = currentScroll + (rect.top - containerTop);
-      const absoluteTargetPoint = elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
-      const finalTarget = absoluteTargetPoint - window.innerHeight / 2;
-
-      container.scrollTo({
-        top: finalTarget,
-        behavior: 'smooth',
-      });
-    };
-
-    performPrecisionScroll();
-    let checks = 0;
-    const scrollInterval = setInterval(() => {
-      performPrecisionScroll();
-      checks++;
-
-      // Stop after few second or if the user starts scrolling manually
-      if (checks > 6) {
-        clearInterval(scrollInterval);
-      }
-    }, 500);
-
-    // Stop the scroll if the user scrolls manually
-    const stopOnUserScroll = () => {
-      clearInterval(scrollInterval);
-      window.removeEventListener('wheel', stopOnUserScroll);
-      window.removeEventListener('touchmove', stopOnUserScroll);
-    };
-    window.addEventListener('wheel', stopOnUserScroll);
-    window.addEventListener('touchmove', stopOnUserScroll);
-    logger.log('Resumed manga progress', saved);
   }
 }

@@ -243,7 +243,85 @@ export class SyncPage {
     }
   }
 
-  private handleMangaResume() {
+  private async handleMangaResume() {
+    // handle resume button
+    function resume(saved) {
+      if (!saved) return;
+
+      function getElementFromPath(path: number[]): HTMLElement | null {
+        return path.reduce<HTMLElement | null>((current, index) => {
+          if (!current) return null;
+          const nextChild = current.children[index] as HTMLElement;
+          return nextChild || current;
+        }, document.body);
+      }
+
+      function getScrollElement(el: HTMLElement) {
+        let current = el.parentElement;
+
+        while (current && current !== document.body) {
+          const style = window.getComputedStyle(current);
+          const hasScrollbar = current.scrollHeight > current.clientHeight;
+          const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
+          if (hasScrollbar && isScrollable) {
+            return current;
+          }
+          current = current.parentElement;
+        }
+        return document.documentElement;
+      }
+
+      const el = getElementFromPath(saved.nearestElementPath);
+      if (!el) return;
+
+      const performPrecisionScroll = () => {
+        const container = getScrollElement(el);
+        logger.debug('Using scroll container', container);
+        const rect = el.getBoundingClientRect();
+
+        const isMainOrDiv = container === document.documentElement || container === document.body;
+
+        const currentScroll = isMainOrDiv
+          ? window.pageYOffset || document.documentElement.scrollTop
+          : container.scrollTop;
+
+        // If div, find container's offset from the top of the screen
+        const containerTop = isMainOrDiv ? 0 : container.getBoundingClientRect().top;
+        const elementTopInContainer = currentScroll + (rect.top - containerTop);
+        const absoluteTargetPoint =
+          elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
+        const finalTarget = absoluteTargetPoint - window.innerHeight / 2;
+
+        container.scrollTo({
+          top: finalTarget,
+          behavior: 'smooth',
+        });
+      };
+
+      performPrecisionScroll();
+      let checks = 0;
+      const scrollInterval = setInterval(() => {
+        performPrecisionScroll();
+        checks++;
+
+        // Stop after few second or if the user starts scrolling manually
+        if (checks > 6) {
+          clearInterval(scrollInterval);
+        }
+      }, 500);
+
+      // Stop the scroll
+      const stopOnUserScroll = () => {
+        clearInterval(scrollInterval);
+        window.removeEventListener('wheel', stopOnUserScroll);
+        window.removeEventListener('touchmove', stopOnUserScroll);
+      };
+      window.addEventListener('wheel', stopOnUserScroll);
+      window.addEventListener('touchmove', stopOnUserScroll);
+      logger.log('Resumed manga progress', saved);
+    }
+
+    // start of checking
     if (
       !this.page.sync.readerConfig ||
       this.curState === 'undefined' ||
@@ -253,7 +331,7 @@ export class SyncPage {
       return;
     this.mangaProgress?.setChapter(this.page.sync.getEpisode(this.url));
     this.mangaProgress?.setIdentifier(this.page.sync.getIdentifier(this.url));
-    const savedProgress = this.mangaProgress?.loadMangaPage();
+    const savedProgress = await this.mangaProgress?.loadMangaPage();
 
     if (savedProgress) {
       logger.log('Manga Progress Found', this.mangaProgress);
@@ -273,7 +351,7 @@ export class SyncPage {
       );
 
       resumeMsg.find('.sync').on('click', () => {
-        this.mangaProgress?.resume(savedProgress);
+        resume(savedProgress);
         j.$(resumeMsg).remove();
       });
 
