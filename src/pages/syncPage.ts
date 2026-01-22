@@ -311,7 +311,7 @@ export class SyncPage {
       if (!saved || !scrollElement) return;
 
       const el = getElementFromPath(saved.nearestElementPath, scrollElement);
-      logger.log('element check', el, saved.nearestElementPath, scrollElement);
+      // logger.log('element check', el, saved.nearestElementPath, scrollElement);
       if (!el) return;
 
       const isMainOrDiv =
@@ -355,9 +355,17 @@ export class SyncPage {
         clearInterval(scrollInterval);
         window.removeEventListener('wheel', stopOnUserScroll);
         window.removeEventListener('touchmove', stopOnUserScroll);
+        window.removeEventListener('mousedown', stopOnUserScroll);
+        window.removeEventListener('keydown', stopOnUserScroll);
       };
       window.addEventListener('wheel', stopOnUserScroll);
       window.addEventListener('touchmove', stopOnUserScroll);
+      window.addEventListener('mousedown', stopOnUserScroll);
+      window.addEventListener('keydown', e => {
+        if (['ArrowUp', 'ArrowDown', 'Space', 'PageUp', 'PageDown'].includes(e.code)) {
+          stopOnUserScroll();
+        }
+      });
       logger.log('Resumed manga progress', saved);
     }
 

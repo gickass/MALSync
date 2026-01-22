@@ -205,7 +205,6 @@ export class MangaProgress {
   saveMangaPage() {
     const root = this.isLongStrip();
     if (!root) return;
-    // logger.log('scroll', root);
 
     function getElementSelector(el: HTMLElement): number[] {
       const path: number[] = [];
@@ -235,14 +234,19 @@ export class MangaProgress {
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
         if (rect.height < 100 || rect.width < 200) return closest;
 
-        const parent = el.parentElement;
-        const hasSiblings = parent && parent.children.length > 1;
-        const parentIsList =
-          parent &&
-          (parent.children.length >= 4 ||
-            (parent.parentElement && parent.parentElement.children.length >= 4));
-        if (!hasSiblings && !parentIsList) return closest;
+        let currentSearch: HTMLElement | null = el;
+        let foundStructuralSiblings = false;
 
+        for (let i = 0; i < 10; i++) {
+          if (!currentSearch || currentSearch === root) break;
+          const parent = currentSearch.parentElement;
+          if (parent && parent.children.length > 2) {
+            foundStructuralSiblings = true;
+            break; // Found a level with 3 or more siblings, stop climbing
+          }
+          currentSearch = parent;
+        }
+        if (!foundStructuralSiblings) return closest;
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
 
@@ -253,7 +257,7 @@ export class MangaProgress {
       },
       null as { el: HTMLElement; distance: number } | null,
     );
-    let relativeOffset = 0.5;
+    let relativeOffset = null as unknown;
 
     const nearestElement = result?.el;
     if (nearestElement) {
@@ -262,19 +266,20 @@ export class MangaProgress {
         relativeOffset = (viewportCenter - pixelPos.top) / pixelPos.height;
       }
     }
-
+    if (!this.result || !nearestElement || !relativeOffset) {
+      logger.log('One of value is null', this.result, nearestElement, relativeOffset);
+      return;
+    }
     const data = {
-      current: this.result?.current,
-      total: this.result?.total,
+      current: this.result.current,
+      total: this.result.total,
       nearestElementPath: nearestElement ? getElementSelector(nearestElement) : null,
       pixelOffsets: relativeOffset,
     };
-    logger.log('Saving manga page progress', data.nearestElementPath, nearestElement);
     localStorage.setItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
       JSON.stringify(data),
     );
-    logger.log(`Saved manga progress at ${this.page}-${this.identifier}-${this.chapter}`, data);
   }
 
   async loadMangaPage() {
