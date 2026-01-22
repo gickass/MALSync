@@ -311,7 +311,7 @@ export class SyncPage {
       if (!saved || !scrollElement) return;
 
       const el = getElementFromPath(saved.nearestElementPath, scrollElement);
-      // logger.log('element check', el, saved.nearestElementPath, scrollElement);
+      logger.log('element check', el, saved.nearestElementPath, scrollElement);
       if (!el) return;
 
       const isMainOrDiv =

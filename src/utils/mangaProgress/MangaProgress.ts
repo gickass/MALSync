@@ -155,6 +155,7 @@ export class MangaProgress {
       j.$('#malSyncProgress').addClass('ms-done');
       j.$('.flash.type-update .sync').trigger('click');
       clearInterval(this.interval);
+      localStorage.removeItem(`mangaProgress-${this.page}-${this.identifier}-${this.chapter}`);
     }
   }
 
@@ -233,20 +234,28 @@ export class MangaProgress {
         const rect = el.getBoundingClientRect();
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
         if (rect.height < 100 || rect.width < 200) return closest;
+        if (!(rect.bottom > 0 && rect.top < window.innerHeight)) return closest;
 
         let currentSearch: HTMLElement | null = el;
-        let foundStructuralSiblings = false;
-
+        let maxSiblingsFound = 0;
         for (let i = 0; i < 10; i++) {
           if (!currentSearch || currentSearch === root) break;
           const parent = currentSearch.parentElement;
-          if (parent && parent.children.length > 2) {
-            foundStructuralSiblings = true;
-            break; // Found a level with 3 or more siblings, stop climbing
+          if (parent) {
+            const targetToMatch = currentSearch;
+            const siblingCount = Array.from(parent.children).filter(
+              (child): child is HTMLElement =>
+                (child as HTMLElement).tagName === targetToMatch.tagName,
+            ).length;
+
+            if (siblingCount > maxSiblingsFound) {
+              maxSiblingsFound = siblingCount;
+            }
           }
           currentSearch = parent;
         }
-        if (!foundStructuralSiblings) return closest;
+        if (maxSiblingsFound < 3) return closest;
+        // [choose element that has maximum max sibling please]
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
 
