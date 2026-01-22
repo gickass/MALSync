@@ -172,31 +172,46 @@ export class MangaProgress {
 
   // Page saving/loading logic
 
-  private isLongStrip(): boolean {
-    const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+  isLongStrip(): HTMLElement | null {
     const threshold = window.innerHeight * 3;
-    // Return true if page already has long base scroll
-    if (docHeight > threshold) return true;
 
-    return Array.from(document.querySelectorAll('div, section, main, article')).some(el => {
-      const htmlEl = el as HTMLElement;
-      const style = window.getComputedStyle(htmlEl);
-      const isScrollableCSS = /(auto|scroll|overlay)/.test(style.overflowY + style.overflow);
-      if (isScrollableCSS) {
-        return htmlEl.scrollHeight > threshold;
+    const containers = Array.from(
+      document.querySelectorAll('div, section, main, article'),
+    ) as HTMLElement[];
+
+    const bestDiv = containers.reduce((best: HTMLElement | null, current) => {
+      const style = window.getComputedStyle(current);
+      const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
+      const hasContent = current.scrollHeight > current.clientHeight;
+
+      if (!isScrollable || !hasContent) return best;
+
+      // Compare height to our threshold AND current 'best'
+      const currentHeight = current.scrollHeight;
+      const bestHeight = best ? best.scrollHeight : 0;
+      if (currentHeight > threshold && currentHeight > bestHeight) {
+        return current;
       }
-      return false;
-    });
+      return best;
+    }, null);
+
+    if (bestDiv) return bestDiv;
+
+    // Final document fallback
+    const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    return docHeight > threshold ? document.documentElement : null;
   }
 
   saveMangaPage() {
-    if (!this.isLongStrip()) return;
+    const root = this.isLongStrip();
+    if (!root) return;
+    // logger.log('scroll', root);
 
     function getElementSelector(el: HTMLElement): number[] {
       const path: number[] = [];
       let current: HTMLElement | null = el;
 
-      while (current && current !== document.body) {
+      while (current && current !== root) {
         const parent = current.parentElement;
         if (!parent) break;
 
@@ -208,29 +223,28 @@ export class MangaProgress {
     }
 
     const viewportCenter = window.innerHeight / 2;
-    const elements = Array.from(document.body.querySelectorAll<HTMLElement>('*'));
+    const elements = Array.from(root.querySelectorAll<HTMLElement>('*'));
 
     const result = elements.reduce(
       (closest, el) => {
         const style = getComputedStyle(el);
         if (style.display === 'none' || style.opacity === '0') return closest;
 
-        const className = el.getAttribute('class');
-        if (!className) return closest;
-        const firstClass = className.split(/\s+/)[0];
-        if (!firstClass) return closest;
-
-        const globalClassCount = document.getElementsByClassName(firstClass).length;
-
-        if (globalClassCount < 2) return closest;
+        const isImage = el.tagName === 'IMG';
+        const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
+        if (!isImage && !hasBg) return closest;
 
         const rect = el.getBoundingClientRect();
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
         if (rect.height < 100 || rect.width < 200) return closest;
 
-        const isImage = el.tagName === 'IMG';
-        const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
-        if (!isImage && !hasBg) return closest;
+        const parent = el.parentElement;
+        const hasSiblings = parent && parent.children.length > 1;
+        const parentIsList =
+          parent &&
+          (parent.children.length >= 4 ||
+            (parent.parentElement && parent.parentElement.children.length >= 4));
+        if (!hasSiblings && !parentIsList) return closest;
 
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
@@ -238,12 +252,10 @@ export class MangaProgress {
         if (!closest || distance < closest.distance) {
           return { el, distance };
         }
-
         return closest;
       },
       null as { el: HTMLElement; distance: number } | null,
     );
-
     let relativeOffset = 0.5;
 
     const nearestElement = result?.el;
@@ -260,6 +272,7 @@ export class MangaProgress {
       nearestElementPath: nearestElement ? getElementSelector(nearestElement) : null,
       pixelOffsets: relativeOffset,
     };
+    logger.log('Saving manga page progress', data.nearestElementPath, nearestElement);
     localStorage.setItem(
       `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
       JSON.stringify(data),

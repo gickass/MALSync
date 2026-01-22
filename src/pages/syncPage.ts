@@ -246,20 +246,22 @@ export class SyncPage {
   private async handleMangaResume() {
     if (
       !this.page.sync.readerConfig ||
+      !this.mangaProgress ||
       this.curState === 'undefined' ||
       this.curState.identifier === 'undefined' ||
       this.curState.episode === 'undefined'
     )
       return;
-    this.mangaProgress?.setChapter(this.page.sync.getEpisode(this.url));
-    this.mangaProgress?.setIdentifier(this.page.sync.getIdentifier(this.url));
-    const savedProgress = await this.mangaProgress?.loadMangaPage();
+    this.mangaProgress.setChapter(this.page.sync.getEpisode(this.url));
+    this.mangaProgress.setIdentifier(this.page.sync.getIdentifier(this.url));
+    const savedProgress = await this.mangaProgress.loadMangaPage();
+    const scrollElement = this.mangaProgress.isLongStrip();
 
-    if (savedProgress) {
-      logger.log('Manga Progress Found', this.mangaProgress);
+    if (savedProgress && scrollElement) {
+      logger.log('Manga Progress Found', savedProgress);
 
-      const targetElement = getElementFromPath(savedProgress.nearestElementPath);
-      const AutoCloseUI = getScrollElement(targetElement);
+      const targetElement = getElementFromPath(savedProgress.nearestElementPath, scrollElement);
+      const AutoCloseUI = scrollElement;
       const eventClose =
         AutoCloseUI === document.documentElement || AutoCloseUI === document.body
           ? window
@@ -306,14 +308,14 @@ export class SyncPage {
 
     // resume button handling
     function resume(saved) {
-      if (!saved) return;
+      if (!saved || !scrollElement) return;
 
-      const el = getElementFromPath(saved.nearestElementPath);
-      logger.log('element check', el, saved.nearestElementPath);
+      const el = getElementFromPath(saved.nearestElementPath, scrollElement);
+      logger.log('element check', el, saved.nearestElementPath, scrollElement);
       if (!el) return;
 
-      const container = getScrollElement(el);
-      const isMainOrDiv = container === document.documentElement || container === document.body;
+      const isMainOrDiv =
+        scrollElement === document.documentElement || scrollElement === document.body;
       let finalTarget = 0;
 
       const performPrecisionScroll = () => {
@@ -321,16 +323,16 @@ export class SyncPage {
 
         const currentScroll = isMainOrDiv
           ? window.pageYOffset || document.documentElement.scrollTop
-          : container.scrollTop;
+          : scrollElement.scrollTop;
 
         // If scroll in div, find container's offset from the top of the screen
-        const containerTop = isMainOrDiv ? 0 : container.getBoundingClientRect().top;
+        const containerTop = isMainOrDiv ? 0 : scrollElement.getBoundingClientRect().top;
         const elementTopInContainer = currentScroll + (rect.top - containerTop);
         const absoluteTargetPoint =
           elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
         finalTarget = absoluteTargetPoint - window.innerHeight / 2;
 
-        container.scrollTo({
+        scrollElement.scrollTo({
           top: finalTarget,
           behavior: 'smooth',
         });
@@ -344,7 +346,7 @@ export class SyncPage {
         checks++;
 
         // Stop after few second or if the user starts scrolling manually
-        if (checks > 6) {
+        if (checks > 100) {
           clearInterval(scrollInterval);
         }
       }, 500);
@@ -359,47 +361,12 @@ export class SyncPage {
       logger.log('Resumed manga progress', saved);
     }
 
-    function getScrollElement(el: HTMLElement) {
-      let current = el.parentElement;
-
-      while (current && current !== document.body) {
-        const style = window.getComputedStyle(current);
-        const hasScrollbar = current.scrollHeight > current.clientHeight;
-        const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
-        if (hasScrollbar && isScrollable) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-      return document.documentElement;
-    }
-
-    function getElementFromPath(path: number[]): HTMLElement {
-      const runPath = (p: number[]) =>
-        p.reduce((current, index) => {
-          return (current.children[index] as HTMLElement) || current;
-        }, document.body);
-
-      const isInvalid = (el: HTMLElement) => {
-        const isJunkTag = ['SCRIPT', 'META', 'LINK', 'STYLE'].includes(el.tagName);
-        const hasHiddenAttr = el.hasAttribute('hidden');
-        const style = window.getComputedStyle(el);
-        const isCSSHidden = style.display === 'none' || style.visibility === 'hidden';
-        return isJunkTag || hasHiddenAttr || isCSSHidden;
-      };
-
-      const result = runPath(path);
-      if (isInvalid(result)) {
-        if (path[0] !== 5) {
-          const fallbackPath = [5, ...path.slice(1)];
-          const fallbackResult = runPath(fallbackPath);
-          logger.log('Invalid element path, trying fallback', fallbackPath, fallbackResult);
-          if (!isInvalid(fallbackResult)) {
-            return fallbackResult;
-          }
-        }
-      }
-      return result;
+    function getElementFromPath(path: number[], root: HTMLElement): HTMLElement {
+      return path.reduce((current, index) => {
+        // If the next array (child) element exists, move down the tree; otherwise, stay at current
+        const child = current.children[index] as HTMLElement;
+        return child || current;
+      }, root);
     }
   }
 
