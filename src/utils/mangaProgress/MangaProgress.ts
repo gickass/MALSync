@@ -229,10 +229,7 @@ export class MangaProgress {
       (closest, el) => {
         const style = getComputedStyle(el);
         if (style.display === 'none' || style.opacity === '0') return closest;
-
-        const isImage = el.tagName === 'IMG';
-        const hasBg = style.backgroundImage && style.backgroundImage !== 'none';
-        if (!isImage && !hasBg) return closest;
+        if (!(el.tagName === 'IMG')) return closest;
 
         const rect = el.getBoundingClientRect();
         if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
