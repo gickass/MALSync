@@ -34,6 +34,10 @@ export class MangaProgress {
 
   protected page: string;
 
+  protected identifier?: string;
+
+  protected chapter?: number;
+
   protected result: mangaProgress | null = null;
 
   protected interval;
@@ -42,9 +46,11 @@ export class MangaProgress {
     // do nothing
   };
 
-  constructor(configs: mangaProgressConfig[], page: string) {
+  constructor(configs: mangaProgressConfig[], page: string, identifier?: string, chapter?: number) {
     this.configs = [...alternativeReader, ...configs];
     this.page = page;
+    this.identifier = identifier;
+    this.chapter = chapter;
     logger.log('config', this.configs);
   }
 
@@ -141,10 +147,224 @@ export class MangaProgress {
   setProgress() {
     j.$('.ms-progress').css('width', `${this.progressPercentage()! * 100}%`);
     j.$('#malSyncProgress').removeClass('ms-loading').removeClass('ms-done');
+
+    if (this.page && this.identifier && this.chapter && (this.result?.current || 0) > 1)
+      this.saveMangaPage();
+
     if (this.finished() && j.$('#malSyncProgress').length) {
       j.$('#malSyncProgress').addClass('ms-done');
       j.$('.flash.type-update .sync').trigger('click');
       clearInterval(this.interval);
+      localStorage.removeItem(`mangaProgress-${this.page}-${this.identifier}-${this.chapter}`);
+    }
+  }
+
+  setIdentifier(identifier: string) {
+    if (this.identifier !== identifier) {
+      this.identifier = identifier;
+    }
+  }
+
+  setChapter(chapter: number) {
+    if (this.chapter !== chapter) {
+      this.chapter = chapter;
+    }
+  }
+
+  // Page saving/loading logic
+
+  isLongStrip(): HTMLElement | null {
+    const heightThreshold = window.innerHeight * 3;
+    const minWidth = 200;
+
+    const containers = Array.from(
+      document.querySelectorAll('div, section, main, article'),
+    ) as HTMLElement[];
+
+    const bestDiv = containers.reduce((best: HTMLElement | null, current) => {
+      if (current.offsetWidth < minWidth) return best;
+      const scrollHeight = current.scrollHeight;
+      if (scrollHeight <= current.clientHeight || scrollHeight <= heightThreshold) {
+        return best;
+      }
+
+      const style = window.getComputedStyle(current);
+      const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
+      if (!isScrollable) return best;
+
+      const bestHeight = best ? best.scrollHeight : 0;
+      if (scrollHeight > bestHeight) {
+        return current;
+      }
+      return best;
+    }, null);
+    if (bestDiv) return bestDiv;
+
+    const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+    return docHeight > heightThreshold ? document.documentElement : null;
+  }
+
+  saveMangaPage() {
+    const root = this.isLongStrip();
+    if (!root) return;
+
+    function getElementSelector(el: HTMLElement): number[] {
+      const path: number[] = [];
+      let current: HTMLElement | null = el;
+
+      while (current && current !== root) {
+        const parent = current.parentElement;
+        if (!parent) break;
+
+        const index = Array.from(parent.children).indexOf(current);
+        path.unshift(index);
+        current = parent;
+      }
+      return path;
+    }
+
+    const viewportCenter = window.innerHeight / 2;
+    const elements = Array.from(root.querySelectorAll<HTMLElement>('*'));
+
+    const result = elements.reduce(
+      (closest, el) => {
+        const style = getComputedStyle(el);
+        if (style.display === 'none' || style.opacity === '0') return closest;
+        if (el.tagName !== 'IMG') return closest;
+
+        const rect = el.getBoundingClientRect();
+        const vHeight = window.innerHeight;
+        if (rect.bottom < 0 || rect.top > vHeight) return closest;
+        if (rect.height < 100 || rect.width < 200) return closest;
+
+        let currentSearch: HTMLElement | null = el;
+        let maxSiblingsFound = 0;
+        const currentLineage: HTMLElement[] = [];
+        for (let i = 0; i < 10; i++) {
+          if (!currentSearch || currentSearch === root) break;
+          currentLineage.push(currentSearch);
+
+          const parent = currentSearch.parentElement;
+          if (parent) {
+            const tagName = currentSearch.tagName;
+            const siblingCount = Array.from(parent.children).filter(
+              child => (child as HTMLElement).tagName === tagName,
+            ).length;
+            if (siblingCount > maxSiblingsFound) {
+              maxSiblingsFound = siblingCount;
+            }
+          }
+          currentSearch = parent;
+        }
+
+        if (maxSiblingsFound < 3) return closest;
+
+        const elementCenter = rect.top + rect.height / 2;
+        const distance = Math.abs(elementCenter - viewportCenter);
+        if (!closest) {
+          return {
+            el,
+            distance,
+            maxSiblings: maxSiblingsFound,
+            lineageSet: new Set(currentLineage),
+          };
+        }
+        const sharesAncestor = currentLineage.some(ancestor => closest.lineageSet.has(ancestor));
+
+        if (!sharesAncestor) {
+          if (maxSiblingsFound > closest.maxSiblings) {
+            return {
+              el,
+              distance,
+              maxSiblings: maxSiblingsFound,
+              lineageSet: new Set(currentLineage),
+            };
+          }
+          if (maxSiblingsFound < closest.maxSiblings) {
+            return closest;
+          }
+        }
+
+        if (distance < closest.distance) {
+          return {
+            el,
+            distance,
+            maxSiblings: maxSiblingsFound,
+            lineageSet: new Set(currentLineage),
+          };
+        }
+        return closest;
+      },
+      null as {
+        el: HTMLElement;
+        distance: number;
+        maxSiblings: number;
+        lineageSet: Set<HTMLElement>;
+      } | null,
+    );
+    let relativeOffset = null as unknown;
+
+    const nearestElement = result?.el;
+    if (nearestElement) {
+      const pixelPos = nearestElement.getBoundingClientRect();
+      if (pixelPos.height > 0) {
+        relativeOffset = (viewportCenter - pixelPos.top) / pixelPos.height;
+      }
+    }
+    if (!this.result || !nearestElement || !relativeOffset) {
+      logger.log(
+        'One of manga saving componenet is null',
+        this.result,
+        nearestElement,
+        relativeOffset,
+      );
+      return;
+    }
+    const data = {
+      current: this.result.current,
+      total: this.result.total,
+      nearestElementPath: nearestElement ? getElementSelector(nearestElement) : null,
+      pixelOffsets: relativeOffset,
+    };
+    localStorage.setItem(
+      `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
+      JSON.stringify(data),
+    );
+  }
+
+  async loadMangaPage() {
+    const isReady = await new Promise(resolve => {
+      let attempts = 0;
+      const interval = setInterval(() => {
+        if (this.isLongStrip()) {
+          clearInterval(interval);
+          resolve(true);
+        }
+        if (++attempts > 10) {
+          // Check only for 5 seconds after page load
+          clearInterval(interval);
+          resolve(false);
+        }
+      }, 500);
+    });
+    if (!isReady) {
+      logger.log('Page save only support for long strip as of now');
+      return null;
+    }
+
+    const saved = localStorage.getItem(
+      `mangaProgress-${this.page}-${this.identifier}-${this.chapter}`,
+    );
+    if (!saved) return null;
+
+    try {
+      const data = JSON.parse(saved);
+      if (data.current === data.total) return null;
+
+      return data;
+    } catch (e) {
+      logger.warn('Failed to load manga progress', e);
+      return null;
     }
   }
 }
