@@ -174,33 +174,34 @@ export class MangaProgress {
   // Page saving/loading logic
 
   isLongStrip(): HTMLElement | null {
-    const threshold = window.innerHeight * 3;
+    const heightThreshold = window.innerHeight * 3;
+    const minWidth = 200;
 
     const containers = Array.from(
       document.querySelectorAll('div, section, main, article'),
     ) as HTMLElement[];
 
     const bestDiv = containers.reduce((best: HTMLElement | null, current) => {
+      if (current.offsetWidth < minWidth) return best;
+      const scrollHeight = current.scrollHeight;
+      if (scrollHeight <= current.clientHeight || scrollHeight <= heightThreshold) {
+        return best;
+      }
+
       const style = window.getComputedStyle(current);
       const isScrollable = /(auto|scroll)/.test(style.overflowY + style.overflow);
-      const hasContent = current.scrollHeight > current.clientHeight;
+      if (!isScrollable) return best;
 
-      if (!isScrollable || !hasContent) return best;
-
-      // Compare height to our threshold AND current 'best'
-      const currentHeight = current.scrollHeight;
       const bestHeight = best ? best.scrollHeight : 0;
-      if (currentHeight > threshold && currentHeight > bestHeight) {
+      if (scrollHeight > bestHeight) {
         return current;
       }
       return best;
     }, null);
-
     if (bestDiv) return bestDiv;
 
-    // Final document fallback
     const docHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-    return docHeight > threshold ? document.documentElement : null;
+    return docHeight > heightThreshold ? document.documentElement : null;
   }
 
   saveMangaPage() {
@@ -229,42 +230,77 @@ export class MangaProgress {
       (closest, el) => {
         const style = getComputedStyle(el);
         if (style.display === 'none' || style.opacity === '0') return closest;
-        if (!(el.tagName === 'IMG')) return closest;
+        if (el.tagName !== 'IMG') return closest;
 
         const rect = el.getBoundingClientRect();
-        if (rect.bottom < 0 || rect.top > window.innerHeight) return closest;
+        const vHeight = window.innerHeight;
+        if (rect.bottom < 0 || rect.top > vHeight) return closest;
         if (rect.height < 100 || rect.width < 200) return closest;
-        if (!(rect.bottom > 0 && rect.top < window.innerHeight)) return closest;
 
         let currentSearch: HTMLElement | null = el;
         let maxSiblingsFound = 0;
+        const currentLineage: HTMLElement[] = [];
         for (let i = 0; i < 10; i++) {
           if (!currentSearch || currentSearch === root) break;
+          currentLineage.push(currentSearch);
+
           const parent = currentSearch.parentElement;
           if (parent) {
-            const targetToMatch = currentSearch;
+            const tagName = currentSearch.tagName;
             const siblingCount = Array.from(parent.children).filter(
-              (child): child is HTMLElement =>
-                (child as HTMLElement).tagName === targetToMatch.tagName,
+              child => (child as HTMLElement).tagName === tagName,
             ).length;
-
             if (siblingCount > maxSiblingsFound) {
               maxSiblingsFound = siblingCount;
             }
           }
           currentSearch = parent;
         }
+
         if (maxSiblingsFound < 3) return closest;
-        // [choose element that has maximum max sibling please]
+
         const elementCenter = rect.top + rect.height / 2;
         const distance = Math.abs(elementCenter - viewportCenter);
+        if (!closest) {
+          return {
+            el,
+            distance,
+            maxSiblings: maxSiblingsFound,
+            lineageSet: new Set(currentLineage),
+          };
+        }
+        const sharesAncestor = currentLineage.some(ancestor => closest.lineageSet.has(ancestor));
 
-        if (!closest || distance < closest.distance) {
-          return { el, distance };
+        if (!sharesAncestor) {
+          if (maxSiblingsFound > closest.maxSiblings) {
+            return {
+              el,
+              distance,
+              maxSiblings: maxSiblingsFound,
+              lineageSet: new Set(currentLineage),
+            };
+          }
+          if (maxSiblingsFound < closest.maxSiblings) {
+            return closest;
+          }
+        }
+
+        if (distance < closest.distance) {
+          return {
+            el,
+            distance,
+            maxSiblings: maxSiblingsFound,
+            lineageSet: new Set(currentLineage),
+          };
         }
         return closest;
       },
-      null as { el: HTMLElement; distance: number } | null,
+      null as {
+        el: HTMLElement;
+        distance: number;
+        maxSiblings: number;
+        lineageSet: Set<HTMLElement>;
+      } | null,
     );
     let relativeOffset = null as unknown;
 
@@ -276,7 +312,12 @@ export class MangaProgress {
       }
     }
     if (!this.result || !nearestElement || !relativeOffset) {
-      logger.log('One of value is null', this.result, nearestElement, relativeOffset);
+      logger.log(
+        'One of manga saving componenet is null',
+        this.result,
+        nearestElement,
+        relativeOffset,
+      );
       return;
     }
     const data = {
