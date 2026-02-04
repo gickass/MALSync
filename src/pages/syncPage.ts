@@ -243,6 +243,141 @@ export class SyncPage {
     }
   }
 
+  private async handleMangaResume() {
+    if (
+      !this.page.sync.readerConfig ||
+      !this.mangaProgress ||
+      this.curState === 'undefined' ||
+      this.curState.identifier === 'undefined' ||
+      this.curState.episode === 'undefined'
+    )
+      return;
+    this.mangaProgress.setChapter(this.page.sync.getEpisode(this.url));
+    this.mangaProgress.setIdentifier(this.page.sync.getIdentifier(this.url));
+    const savedProgress = await this.mangaProgress.loadMangaPage();
+    const scrollElement = this.mangaProgress.isLongStrip();
+
+    if (savedProgress && scrollElement) {
+      logger.log('Manga Progress Found', savedProgress);
+
+      const targetElement = getElementFromPath(savedProgress.nearestElementPath, scrollElement);
+      const AutoCloseUI = scrollElement;
+      const eventClose =
+        AutoCloseUI === document.documentElement || AutoCloseUI === document.body
+          ? window
+          : AutoCloseUI;
+
+      const resumeMsg = utils.flashm(
+        `<button id="MALSyncResume" class="sync" style="margin-bottom: 2px; background-color: transparent; border: none; color: rgb(255,64,129); cursor: pointer;">
+         Return to last page? (${savedProgress.current} of ${savedProgress.total})
+       </button>
+       <br>
+       <button class="resumeClose" style="background-color: transparent; border: none; color: white; margin-top: 10px; cursor: pointer;">Close</button>`,
+        {
+          permanent: true,
+          error: false,
+          type: 'resume',
+          minimized: false,
+          position: 'bottom',
+        },
+      );
+
+      const removeUIOnScroll = () => {
+        if (!targetElement || !resumeMsg) return;
+
+        const rect = targetElement.getBoundingClientRect();
+        if (rect.top < window.innerHeight * 0.25) {
+          j.$(resumeMsg).remove();
+          eventClose.removeEventListener('scroll', removeUIOnScroll);
+        }
+      };
+
+      resumeMsg.find('.sync').on('click', () => {
+        eventClose.removeEventListener('scroll', removeUIOnScroll);
+        resume(savedProgress);
+        j.$(resumeMsg).remove();
+      });
+
+      resumeMsg.find('.resumeClose').on('click', () => {
+        eventClose.removeEventListener('scroll', removeUIOnScroll);
+        j.$(resumeMsg).remove();
+      });
+
+      eventClose.addEventListener('scroll', removeUIOnScroll, { passive: true });
+    }
+
+    // resume button handling
+    function resume(saved) {
+      if (!saved || !scrollElement) return;
+
+      const el = getElementFromPath(saved.nearestElementPath, scrollElement);
+      logger.log('element check', el, saved.nearestElementPath, scrollElement);
+      if (!el) return;
+
+      const isMainOrDiv =
+        scrollElement === document.documentElement || scrollElement === document.body;
+      let finalTarget = 0;
+
+      const performPrecisionScroll = () => {
+        const rect = el.getBoundingClientRect();
+
+        const currentScroll = isMainOrDiv
+          ? window.pageYOffset || document.documentElement.scrollTop
+          : scrollElement.scrollTop;
+
+        // If scroll in div, find container's offset from the top of the screen
+        const containerTop = isMainOrDiv ? 0 : scrollElement.getBoundingClientRect().top;
+        const elementTopInContainer = currentScroll + (rect.top - containerTop);
+        const absoluteTargetPoint =
+          elementTopInContainer + rect.height * (saved.pixelOffsets || 0.5);
+        finalTarget = absoluteTargetPoint - window.innerHeight / 2;
+
+        scrollElement.scrollTo({
+          top: finalTarget,
+          behavior: 'smooth',
+        });
+      };
+
+      performPrecisionScroll();
+
+      let checks = 0;
+      const scrollInterval = setInterval(() => {
+        performPrecisionScroll();
+        checks++;
+
+        // Stop after few second or if the user starts scrolling manually
+        if (checks > 100) {
+          clearInterval(scrollInterval);
+        }
+      }, 500);
+
+      const stopOnUserScroll = () => {
+        clearInterval(scrollInterval);
+        window.removeEventListener('wheel', stopOnUserScroll);
+        window.removeEventListener('touchmove', stopOnUserScroll);
+        window.removeEventListener('mousedown', stopOnUserScroll);
+        window.removeEventListener('keydown', stopOnUserScroll);
+      };
+      window.addEventListener('wheel', stopOnUserScroll);
+      window.addEventListener('touchmove', stopOnUserScroll);
+      window.addEventListener('mousedown', stopOnUserScroll);
+      window.addEventListener('keydown', e => {
+        if (['ArrowUp', 'ArrowDown', 'Space', 'PageUp', 'PageDown'].includes(e.code)) {
+          stopOnUserScroll();
+        }
+      });
+      logger.log('Resumed manga progress', saved);
+    }
+
+    function getElementFromPath(path: number[], root: HTMLElement): HTMLElement {
+      return path.reduce((current, index) => {
+        // If the next array (child) element exists, move down the tree; otherwise, stay at current
+        const child = current.children[index] as HTMLElement;
+        return child || current;
+      }, root);
+    }
+  }
+
   curState: any = undefined;
 
   tempPlayer: any = undefined;
@@ -336,6 +471,9 @@ export class SyncPage {
             }
           });
         });
+      }
+      if (this.page.type === 'manga') {
+        this.handleMangaResume();
       }
       logger.m('Sync', 'green').log(state);
     } else {
