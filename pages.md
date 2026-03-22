@@ -384,6 +384,13 @@
     <td>:x:</td>
     <td>:heavy_check_mark:</td>
   </tr><tr>
+    <td><a href="https://gaiaflix.live"><img src="https://favicon.malsync.moe/?domain=https://gaiaflix.live"> GaiaFlix</a></td>
+    <td>English</td>
+    <td>:heavy_check_mark:</td>
+    <td>:x:</td>
+    <td>:x:</td>
+    <td>:x:</td>
+  </tr><tr>
     <td><a href="https://animetsu.net"><img src="https://favicon.malsync.moe/?domain=https://animetsu.net"> Gojo</a></td>
     <td>English</td>
     <td>:heavy_check_mark:</td>
