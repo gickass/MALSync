@@ -799,6 +799,13 @@
     <td>:x:</td>
     <td>:x:</td>
   </tr><tr>
+    <td><a href="https://elftoon.com"><img src="https://favicon.malsync.moe/?domain=https://elftoon.com"> ElfToon</a></td>
+    <td>English</td>
+    <td>:heavy_check_mark:</td>
+    <td>:heavy_check_mark:</td>
+    <td>:x:</td>
+    <td>:x:</td>
+  </tr><tr>
     <td><a href="https://falconscans.com/"><img src="https://favicon.malsync.moe/?domain=https://falconscans.com/"> FalconScans</a></td>
     <td>English</td>
     <td>:heavy_check_mark:</td>
