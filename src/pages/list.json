@@ -1020,6 +1020,11 @@
     "name": "TempleScan"
   },
   {
+    "domain": "https://elftoon.com",
+    "type": "manga",
+    "name": "ElfToon"
+  },
+  {
     "domain": "https://www.team-shadowi.com/",
     "type": "manga",
     "name": "TeamShadowi"
