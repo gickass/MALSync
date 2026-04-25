@@ -559,6 +559,7 @@ module.exports = {
       '*://jefferycontrolmodel.com/e/*',
       '*://jessicaclearout.com/e/*',
       '*://marissasharecareer.com/e/*',
+      '*://timmaybealready.com/e/*',
       // auto-voe-replace-dont-remove
     ],
   },
