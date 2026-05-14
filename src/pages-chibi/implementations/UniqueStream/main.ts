@@ -22,13 +22,10 @@ export const UniqueStream: PageInterface = {
       return $c
         .if(
           getSeasonCheckSync($c),
-          $c
-            .fn(baseTitle)
-            .concat(' ')
-            .concat($c.title().regex('Season \\d+').ifNotReturn().trim().run())
-            .run(),
+          $c.fn(baseTitle).concat(' ').concat(getSeasonNamingSync($c)).run(),
           baseTitle,
         )
+        .trim()
         .run();
     },
     getIdentifier($c) {
@@ -36,14 +33,10 @@ export const UniqueStream: PageInterface = {
       return $c
         .if(
           getSeasonCheckSync($c),
-          $c
-            .fn(baseIdentifier)
-            .concat('-')
-            .concat($c.title().regex('Season \\d+').ifNotReturn().trim().run())
-            .slugify()
-            .run(),
+          $c.fn(baseIdentifier).concat('-').concat(getSeasonNamingSync($c)).slugify().run(),
           baseIdentifier,
         )
+        .slugify()
         .run();
     },
     getOverviewUrl($c) {
@@ -55,7 +48,7 @@ export const UniqueStream: PageInterface = {
         .run();
     },
     getEpisode($c) {
-      return $c.querySelector('episode-watch-title').text().regex(EpRegex).number().run();
+      return $c.querySelector('.episode-watch-title').text().regexAutoGroup(EpRegex).number().run();
     },
     nextEpUrl($c) {
       return $c
@@ -79,14 +72,10 @@ export const UniqueStream: PageInterface = {
       return $c
         .if(
           getSeasonCheckOverview($c),
+          $c.fn(baseTitle).ifNotReturn().concat(' ').concat(getSeasonNamingOverview($c)).run(),
           baseTitle,
-          $c
-            .fn(baseTitle)
-            .ifNotReturn()
-            .concat(' ')
-            .concat($c.querySelector('h2').ifNotReturn().text().trim().run())
-            .run(),
         )
+        .trim()
         .run();
     },
     getIdentifier($c) {
@@ -94,14 +83,10 @@ export const UniqueStream: PageInterface = {
       return $c
         .if(
           getSeasonCheckOverview($c),
+          $c.fn(baseIdentifier).concat('-').concat(getSeasonNamingOverview($c)).slugify().run(),
           baseIdentifier,
-          $c
-            .fn(baseIdentifier)
-            .concat('-')
-            .concat($c.querySelector('h2').ifNotReturn().text().trim().run())
-            .slugify()
-            .run(),
         )
+        .slugify()
         .run();
     },
     getImage($c) {
@@ -144,17 +129,70 @@ export const UniqueStream: PageInterface = {
         .run();
     },
     syncIsReady($c) {
-      return $c.waitUntilTrue($c.querySelector('#videoContainer').boolean().run()).trigger().run();
+      return $c
+        .waitUntilTrue($c.querySelector('.episode-series-link').boolean().run())
+        .trigger()
+        .run();
     },
   },
 };
 
 function getSeasonCheckSync($c: ChibiGenerator<unknown>) {
-  return $c.title().matches('Season\\s*1|S\\s*1').log().run();
+  return $c
+    .or(
+      $c.title().matches(SeasonRegex).run(),
+      $c
+        .querySelector('.episode-meta [class*="queue-list"]')
+        .text()
+        .trim()
+        .equals($c.querySelector('.episode-series-link').ifNotReturn().text().trim().run())
+        .run(),
+    )
+    .log('Season 2 or movie check')
+    .run();
+}
+
+function getSeasonNamingSync($c: ChibiGenerator<unknown>) {
+  return $c
+    .coalesce(
+      $c
+        .title()
+        .regexAutoGroup(SeasonRegex)
+        .ifThen($c => $c.replaceRegex('^', 'Season ').run())
+        .run(),
+      $c.string(' ').log('No Season Detected').run(),
+    )
+    .run();
 }
 
 function getSeasonCheckOverview($c: ChibiGenerator<unknown>) {
-  return $c.querySelector('h2').text().matches('Season\\s*1|S\\s*1').log().run();
+  return $c
+    .or(
+      $c.querySelector('h2').text().matches(SeasonRegex).run(),
+      $c
+        .querySelector('h2')
+        .text()
+        .trim()
+        .equals($c.querySelector('.series-title').ifNotReturn().text().trim().run())
+        .run(),
+    )
+    .log('Season 2 or movie check')
+    .run();
+}
+
+function getSeasonNamingOverview($c: ChibiGenerator<unknown>) {
+  return $c
+    .coalesce(
+      $c
+        .querySelector('h2')
+        .text()
+        .regexAutoGroup(SeasonRegex)
+        .ifThen($c => $c.replaceRegex('^', 'Season ').run())
+        .run(),
+      $c.string(' ').log('No Season Detected').run(),
+    )
+    .run();
 }
 
 const EpRegex = 'E\\s*(\\d+)|Episode\\s*(\\d+)';
+const SeasonRegex = 'Season\\s*(?!1\\b)(\\d+)|S\\s*(?!1\\b)(\\d+)';
