@@ -497,6 +497,7 @@ module.exports = {
       '*://jennifereconomicgive.com/e/*',
       '*://pamelachangemission.com/e/*',
       '*://matthewhotelscience.com/e/*',
+      '*://jeremyparticipantanything.com/e/*',
       // auto-voe-replace-dont-remove
     ],
   },
